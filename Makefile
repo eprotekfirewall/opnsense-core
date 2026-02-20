@@ -115,7 +115,6 @@ CORE_MAINTAINER?=	support@eprotek.org
 CORE_ORIGIN?=		opnsense/${CORE_NAME}
 CORE_PACKAGESITE?=	https://pkg.eprotek.org
 CORE_PRODUCT?=		eProtek
-CORE_REPOSITORY?=	${CORE_ABI}/latest
 CORE_WWW?=		https://eProtek.org/
 CORE_USER?=		wwwonly
 CORE_UID?=		789

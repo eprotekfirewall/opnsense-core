@@ -77,6 +77,16 @@ class MenuSystem
     }
 
     /**
+     * get menu item from existing root
+     * @param string $root xpath expression
+     * @return null|MenuItem
+     */
+    public function getItem($root)
+    {
+        return $this->root->findNodeByPath($root);
+    }
+
+    /**
      * append menu item to existing root
      * @param string $root xpath expression
      * @param string $id item if (tag name)
@@ -85,15 +95,7 @@ class MenuSystem
      */
     public function appendItem($root, $id, $properties)
     {
-        $node = $this->root;
-        foreach (explode(".", $root) as $key) {
-            $node = $node->findNodeById($key);
-            if ($node == null) {
-                return null;
-            }
-        }
-
-        return $node->append($id, $properties);
+        return $this->getItem($root)?->append($id, $properties);
     }
 
     /**
@@ -329,14 +331,30 @@ class MenuSystem
         }
 
         // add interfaces to "Firewall: Rules" menu tab...
-        $this->appendItem('Firewall.Rules', 'Migration', [
-                'url' => '/ui/firewall/migration',
-                'fixedname' => sprintf("<i class='fa fa-fw fa-gears'> </i> %s", gettext('Migration assistant')),
-                'order' => 0,
-        ]);
-        $iftargets['fw'] = array_merge(['FloatingRules' => gettext('Floating')], $iftargets['fw']);
+        $has_legacy_fw = !empty($config->filter?->rule?->count());
+        $has_mvc_fw = !empty($config->OPNsense?->Firewall?->Filter?->rules?->count());
+        if ($has_legacy_fw) {
+            $this->appendItem('Firewall.Rules', 'Migration', [
+                    'url' => '/ui/firewall/migration',
+                    'fixedname' => sprintf("<i class='fa fa-fw fa-gears'> </i> %s", gettext('Migration assistant')),
+                    'order' => 0,
+            ]);
+            $iftargets['fw'] = array_merge(['FloatingRules' => gettext('Floating')], $iftargets['fw']);
+        } elseif ($has_mvc_fw) {
+            $this->getItem('Firewall.Rule')?->setVisibleName(gettext('Rules'));
+        }
         $ordid = 1;
         foreach ($iftargets['fw'] as $key => $descr) {
+            if ($has_mvc_fw && !$has_legacy_fw) {
+                /* only search */
+                $this->appendItem('Firewall.Rule', $key, [
+                    'url' => '/ui/firewall/filter/#interface=' . $key,
+                    'fixedname' => $descr,
+                    'order' => $ordid++,
+                ]);
+                continue;
+            }
+            /* legacy rules */
             $this->appendItem('Firewall.Rules', $key, [
                 'url' => '/firewall_rules.php?if=' . $key,
                 'fixedname' => $descr,

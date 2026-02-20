@@ -65,8 +65,7 @@
         }
 
         // read interface from URL hash once, for the first grid load
-        const hashMatchInterface = window.location.hash.match(/(?:^#|&)interface=([^&]+)/);
-        let pendingUrlInterface = hashMatchInterface ? decodeURIComponent(hashMatchInterface[1]) : null;
+        let pendingUrlInterface = getUrlHash('interface') || null;
 
         // Lives outside the grid, so the logic of the response handler can be changed after grid initialization
         function dynamicResponseHandler(resp) {
@@ -155,7 +154,6 @@
                 responsive: true,
                 sorting: false,
                 initialSearchPhrase: getUrlHash('search'),
-                triggerEditFor: getUrlHash('edit'),
                 requestHandler: function(request){
                     // Add category selectpicker
                     if ( $('#category_filter').val().length > 0) {
@@ -165,7 +163,6 @@
                     let selectedInterface = $('#interface_select').val();
                     if (selectedInterface == null && pendingUrlInterface != null) {
                         selectedInterface = pendingUrlInterface;
-                        pendingUrlInterface = null; // consume the hash so it is not used again
                     }
                     if (selectedInterface === '__floating') {
                         request.interface = '';
@@ -235,29 +232,46 @@
                     },
                 },
                 formatters:{
-                    // Only show command buttons for rules that have a uuid, internal rules will not have one
                     commands: function (column, row) {
                         // All formatters except category must skip processing bucket rows in tree view
                         if (row.isGroup) {
                             return "";
                         }
-                        let rowId = row.uuid;
+                        const rowId = row.uuid || "";
+                        const hasUuid = rowId.includes("-");
+
+                        const logSearchCommand = (rid, log) => {
+                            const loggingEnabled = log === '1' || log === true;
+                            if (!loggingEnabled) return '';
+
+                            return `
+                                <a href="/ui/diagnostics/firewall/log#${new URLSearchParams({field:'rid',operator:'=',value:rid})}"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="btn btn-xs btn-default bootgrid-tooltip"
+                                title="{{ lang._('View log entries for this rule') }}">
+                                    <i class="fa fa-fw fa-search"></i>
+                                </a>
+                            `;
+                        };
 
                         // If UUID is invalid, its an internal rule, use the #ref field to show a lookup button.
-                        if (!rowId || !rowId.includes('-')) {
-                            let ref = row["ref"] || "";
-                            if (ref.trim().length > 0) {
-                                let url = `/${ref}`;
-                                return `
-                                    <a href="${url}"
-                                    class="btn btn-xs btn-default bootgrid-tooltip"
-                                    title="{{ lang._('Lookup Rule') }}">
-                                        <span class="fa fa-fw fa-search"></span>
-                                    </a>
-                                `;
-                            }
-                            // If ref is empty
-                            return "";
+                        if (!hasUuid) {
+                            const ref = (row["ref"] || "");
+
+                            // optional lookup button if ref exists
+                            const lookupRefCommand = ref ? `
+                                <a href="/${ref}" target="_blank" rel="noopener noreferrer"
+                                class="btn btn-xs btn-default bootgrid-tooltip"
+                                title="{{ lang._('Lookup rule reference') }}">
+                                    <i class="fa fa-fw fa-link"></i>
+                                </a>
+                            ` : '';
+
+                            return `
+                                ${logSearchCommand(rowId, row.log)}
+                                ${lookupRefCommand}
+                            `;
                         }
 
                         return `
@@ -292,6 +306,8 @@
                                 title="{{ lang._('Delete') }}">
                                 <span class="fa fa-fw fa-trash-o"></span>
                             </button>
+
+                            ${logSearchCommand(rowId, row.log)}
                         `;
                     },
                     // Disable rowtoggle for internal rules
@@ -578,6 +594,32 @@
                 },
             },
             commands: {
+                upload_rules: {
+                    onRendered: function () {
+                        const $el = $(this);
+                        $el.data('title', "{{ lang._('Import rules') }}");
+                        $el.data('endpoint', '/api/firewall/filter/upload_rules');
+                        $el.SimpleFileUploadDlg({
+                            onAction: function () {
+                                $("#{{formGridFilterRule['table_id']}}").bootgrid('reload');
+                            }
+                        });
+                    },
+                    footer: true,
+                    classname: 'fa fa-fw fa-upload',
+                    title: "{{ lang._('Import csv') }}",
+                    sequence: 400
+                },
+                download_rules: {
+                    footer: true,
+                    classname: 'fa fa-fw fa-table',
+                    title: "{{ lang._('Export as csv') }}",
+                    method: function (e) {
+                        e.preventDefault();
+                        window.open("/api/firewall/filter/download_rules");
+                    },
+                    sequence: 500
+                },
                 move_before: {
                     method: function(event) {
                         // Ensure exactly one rule is selected to be moved
@@ -752,20 +794,13 @@
                 },
                 false,
                 function (data) {  // post_callback, apply the URL hash logic
-                    const match = window.location.hash.match(/^#interface=([^&]+)/);
-                    if (match) {
-                        const ifaceFromHash = decodeURIComponent(match[1]);
-
-                        const allOptions = Object.values(data).flatMap(group => group.items.map(i => i.value));
-                        if (allOptions.includes(ifaceFromHash)) {
-                            $('#interface_select').val(ifaceFromHash).selectpicker('refresh');
-                        }
-                    } else {
-                        // Default to ALL interfaces
-                        $('#interface_select').selectpicker('val', '__any');
-                    }
+                    const $select = $('#interface_select');
+                    $select.selectpicker('val', pendingUrlInterface && $select.find(`option[value="${pendingUrlInterface}"]`).length
+                            ? pendingUrlInterface
+                            : '__any'  // Default view when having an invalid interface in hash
+                    );
                     interfaceInitialized = true;
-
+                    pendingUrlInterface = null; // consume the hash so it is not used again
                 },
                 true  // render_html to show counts as badges
             );
@@ -1129,29 +1164,7 @@
         </div>
     </div>
     <!-- grid -->
-    {{ partial('layout_partials/base_bootgrid_table', formGridFilterRule + {'command_width': '150'}+ {
-                'grid_commands': {
-                    'upload_rules': {
-                        'title': lang._('Import csv'),
-                        'class': 'btn btn-xs',
-                        'icon_class': 'fa fa-fw fa-upload',
-                        'data': {
-                            'title': lang._('Import rules'),
-                            'endpoint': '/api/firewall/filter/upload_rules',
-                            'toggle': 'tooltip'
-                        }
-                    },
-                    'download_rules': {
-                        'title': lang._('Export as csv'),
-                        'class': 'btn btn-xs',
-                        'icon_class': 'fa fa-fw fa-table',
-                        'data': {
-                            'toggle': 'tooltip'
-                        }
-                    }
-                }
-        })
-    }}
+    {{ partial('layout_partials/base_bootgrid_table', formGridFilterRule + {'command_width': '180'}) }}
 </div>
 
 {{ partial('layout_partials/base_apply_button', {'data_endpoint': '/api/firewall/filter/apply'}) }}

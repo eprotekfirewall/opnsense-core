@@ -132,7 +132,6 @@ class UIBootgrid {
         this.options = {
             disableScroll: false,
             sorting: true,
-            selection: true,
             rowCount: [50, 100, 200, 500, 1000, true],
             remoteGridView: false, // parse gridview from <thead> or via ajax?
             formatters: {
@@ -167,6 +166,10 @@ class UIBootgrid {
             virtualDOM: false,
             selection: true,
             multiSelect: true,
+            batchToggle: true,
+            batchToggleSize: 40,
+            batchDelete: true,
+            batchDeleteSize: 40,
             stickySelect: false,
             rowSelect: false,
             triggerEditFor: null,
@@ -214,7 +217,7 @@ class UIBootgrid {
         }
 
         if (this.options.triggerEditFor) {
-            this.command_edit(null, this.options.triggerEditFor);
+            this.command_edit(null, null, this.options.triggerEditFor);
         }
 
         this._parseGridView();
@@ -263,6 +266,11 @@ class UIBootgrid {
              // remove checkbox select column
             this.compatOptions['rowHeader'] = null;
         }
+
+        this.options.batchToggle = bootGridOptions?.batchToggle ?? true;
+        this.options.batchToggleSize = bootGridOptions?.batchToggleSize ?? 40;
+        this.options.batchDelete = bootGridOptions?.batchDelete ?? true;
+        this.options.batchDeleteSize = bootGridOptions?.batchDeleteSize ?? 40;
 
         if (bootGridOptions?.stickySelect ?? false) {
             this.options.stickySelect = true;
@@ -837,11 +845,6 @@ class UIBootgrid {
 
         this._renderFooterCommands();
 
-        // if there are custom commands defined, inject them here
-        if (this.customCommands !== null) {
-            this.customCommands.appendTo($(`#${this.id} > .tabulator-footer > .tabulator-footer-contents`));
-        }
-
         // swap page counter and paginator around (old look & feel).
         // we hook in before tableBuilt, but after dataLoading
         // since we know the footer is rendered at this point,
@@ -961,7 +964,7 @@ class UIBootgrid {
                 // to the parent so no handlers on parent containers are executed
                 $selector.unbind('click').on("click", function (event) {
                     event.stopPropagation();
-                    commands[command].method?.bind(this)(event);
+                    commands[command].method?.bind(this)(event, cell);
                 });
             }
 
@@ -969,8 +972,7 @@ class UIBootgrid {
         }
     }
 
-    _linkFooterCommands() {
-        const commands = Object.fromEntries(Object.entries(this._getCommands()).filter(([key, value]) => value?.footer));
+    _linkFooterCommands(commands) {
         Object.keys(commands).map((k) => {
             if (!commands[k]?.method && !commands[k]?.onRendered) {
                 return;
@@ -1063,7 +1065,9 @@ class UIBootgrid {
 
         // Rowcount
         this.curRowCount = localStorage.getItem(`${this.persistenceID}-rowCount`) || this.options.rowCount[0];
-        if (this.curRowCount === 'true') {
+        if (/^\+?(0|[1-9]\d*)$/.test(this.curRowCount)) {
+            this.curRowCount = parseInt(this.curRowCount);
+        } else {
             this.curRowCount = true;
         }
         $(`#${this.id}-rowcount-text`).text(this.curRowCount === true ? this._translate('all') : this.curRowCount);
@@ -1087,6 +1091,7 @@ class UIBootgrid {
                         this.table.curRowCount = this.curRowCount;
                     }
                     localStorage.setItem(`${this.persistenceID}-rowCount`, this.curRowCount);
+                    this._setPersistence(true);
                     this.table.setPageSize(newRowCount);
 
                     $(`#${this.id}-rowcount-text`).text(newRowCount === true ? this._translate('all') : newRowCount);
@@ -1134,9 +1139,10 @@ class UIBootgrid {
         const $footerSecondary = $(`#${this.id} > .tabulator-footer > .tabulator-footer-contents`);
         let $commandContainer = $('<div class="text-left bootgrid-footer-commands">');
 
-        // select only footer commands that pass the filter and sort by sequence
+        // select only footer commands that pass the filter (and crud uri requirements) and sort by sequence
         const commands = Object.fromEntries(
             Object.entries(this._getCommands())
+                .filter(([_, v]) => !v?.requires || v.requires.every(key => key in this.crud))
                 .filter(([_, v]) => v?.footer && (typeof v.filter !== "function" || v.filter()))
                 .sort(([, a], [, b]) => a.sequence - b.sequence)
         );
@@ -1170,12 +1176,17 @@ class UIBootgrid {
 
         $footerPrimary.after($commandContainer);
 
+        // if there are custom commands defined, inject them here
+        if (this.customCommands !== null) {
+            this.customCommands.appendTo($footerSecondary);
+        }
+
         // bind tooltips
         $(`#${this.id} > .tabulator-footer`).find('.bootgrid-tooltip').each((i, el) => {
             $(el).tooltip({container: 'body', trigger: 'hover'});
         });
 
-        this._linkFooterCommands();
+        this._linkFooterCommands(commands);
     }
 
     _populateColumnSelection() {
@@ -1522,7 +1533,7 @@ class UIBootgrid {
      * @param {*} id dataIdentifier option value
      */
     setPageByRowId(id) {
-        let page = parseInt((id / this.curRowCount) + 1);
+        let page = typeof(this.curRowCount !== "boolean") ? parseInt((id / this.curRowCount) + 1) : 1;
 
         this.searchPhrase = "";
         $(`#${this.id}-search-field`).val("");
@@ -1557,7 +1568,8 @@ class UIBootgrid {
     *  register commands
     *
     * The command object can have the following properties:
-    * - method: a function that is executed on command click
+    * - method: a function that is executed on command click. function signature is (event, cell).
+    *           the cell object is apssed in only if footer: false
     * - title: translated title to be shown as a tooltip. Can be a function with the cell object as param
     * - requires: an array of strings marking which this.crud properties are required
     * - sequence: order of commands rendering
@@ -1657,14 +1669,11 @@ class UIBootgrid {
                 title: this._translate('deleteSelected')
             }
         };
+
         // register additional commands
         $.each(this.options.commands, (k, v) => {
-            if (result[k] === undefined) {
-                result[k] = { requires: [], sequence: 1 };
-            }
-            $.each(v, (ck, cv) => {
-                result[k][ck] = cv;
-            });
+            result[k] ??= { requires: [], sequence: 1 };
+            Object.assign(result[k], v);
         });
         return result;
     }
@@ -1951,7 +1960,7 @@ class UIBootgrid {
     /**
     * edit event
     */
-    command_edit(event, uuid = null) {
+    command_edit(event, cell = null, uuid = null) {
         if (uuid === null)
             event.stopPropagation();
         let editDlg = this.$compatElement.attr('data-editDialog');
@@ -2008,19 +2017,16 @@ class UIBootgrid {
     command_delete_selected(event) {
         event.stopPropagation();
         stdDialogRemoveItem(this._translate('removeWarning'), () => {
-            let rows = this.table.getSelectedData();
-            if (rows.length > 0) {
-                const deferreds = [];
-                rows.forEach((row) => {
-                    let uuid = row[this.options.datakey];
-                    deferreds.push(ajaxCall(this.crud['del'] + uuid, {}, null));
-                });
-                // refresh after load
-                $.when.apply(null, deferreds).done(() => {
-                    this._reload(true);
-                    this.showSaveAlert(event);
-                });
-            }
+            const rows = this.table.getSelectedData();
+            if (!rows.length) return;
+
+            const key = this.options.datakey;
+            const ids = rows.map(r => r[key]);
+            const size = this.options.batchDelete ? this.options.batchDeleteSize : 1;
+            const batches = Array.from({ length: Math.ceil(ids.length / size) }, (_, i) => ids.slice(i * size, (i + 1) * size));
+
+            $.when.apply(null, batches.map(b => ajaxCall(`${this.crud.del}${b.join(",")}`, {}, null)))
+                .done(() => (this._reload(true), this.showSaveAlert(event)));
         });
     }
 
@@ -2110,17 +2116,15 @@ class UIBootgrid {
     command_toggle_selected(enable, event) {
         event.stopPropagation();
         const rows = this.table.getSelectedData();
-        if (rows.length > 0) {
-            const deferreds = [];
-            rows.forEach((row) => {
-                const uuid = row[this.options.datakey];
-                deferreds.push(ajaxCall(`${this.crud['toggle']}${uuid}/${enable ? "1" : "0"}`, {}, null));
-            })
-            $.when.apply(null, deferreds).done(() => {
-                this._reload(true);
-                this.showSaveAlert(event);
-            });
-        }
+        if (!rows.length) return;
+
+        const key = this.options.datakey, on = enable ? "1" : "0";
+        const ids = rows.map(r => r[key]);
+        const size = this.options.batchToggle ? this.options.batchToggleSize : 1;
+        const batches = Array.from({ length: Math.ceil(ids.length / size) }, (_, i) => ids.slice(i * size, (i + 1) * size));
+
+        $.when.apply(null, batches.map(b => ajaxCall(`${this.crud.toggle}${b.join(",")}/${on}`, {}, null)))
+            .done(() => (this._reload(true), this.showSaveAlert(event)));
     }
 
     _debounce(f, delay = 50, ensure = true) {

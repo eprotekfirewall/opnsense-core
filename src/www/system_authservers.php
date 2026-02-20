@@ -34,8 +34,6 @@ require_once("auth.inc");
 $authFactory = new \OPNsense\Auth\AuthenticationFactory();
 $authCNFOptions = $authFactory->listConfigOptions();
 
-config_read_array('ca');
-
 $a_server = config_read_array('system', 'authserver');
 $a_server[] = ['name' => gettext('Local Database'),'type' => 'local'];
 
@@ -333,8 +331,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     } elseif (isset($pconfig['act']) && $pconfig['act'] == 'del' && isset($id)) {
         /* Remove server from main list. */
         $serverdeleted = $a_server[$id]['name'];
-        foreach ($config['system']['authserver'] as $k => $as) {
-            if ($config['system']['authserver'][$k]['name'] == $serverdeleted) {
+        foreach (config_read_array('system', 'authserver', false) as $k => $as) {
+            if ($as['name'] == $serverdeleted) {
                 unset($config['system']['authserver'][$k]);
             }
         }

@@ -838,7 +838,7 @@ function interface_reset($interface, $ifacecfg = false, $suspend = false)
     }
 
     if (!$suspend) {
-        foreach (config_read_array('virtualip', 'vip') as $vip) {
+        foreach (config_read_array('virtualip', 'vip', false) as $vip) {
             if ($vip['interface'] == $interface) {
                 interface_vip_bring_down($vip);
             }
@@ -868,7 +868,7 @@ function interface_reset($interface, $ifacecfg = false, $suspend = false)
         case 'slaac':
         case 'dhcp6':
             interface_dhcpv6_prepare($interface, $ifcfg, true);
-            killbypid('/var/run/dhcp6c.pid', 'HUP');
+            killbypid("/var/run/dhcp6c.{$device}.pid", 'HUP');
             break;
         case 'idassoc6':
         case 'track6':
@@ -1432,7 +1432,7 @@ function interfaces_pfsync_configure()
 
 function interface_proxyarp_configure($interface = '')
 {
-    global $config;
+    $paa = [];
 
     /* kill any running choparp, on restart "all" */
     if (empty($interface)) {
@@ -1441,17 +1441,14 @@ function interface_proxyarp_configure($interface = '')
         }
     }
 
-    $paa = [];
-    if (isset($config['virtualip']['vip'])) {
-        /* group by interface */
-        foreach ($config['virtualip']['vip'] as $vipent) {
-            if ($vipent['mode'] === "proxyarp") {
-                if (empty($interface) || $interface == $vipent['interface']) {
-                    if (empty($paa[$vipent['interface']])) {
-                        $paa[$vipent['interface']] = [];
-                    }
-                    $paa[$vipent['interface']][] = $vipent;
+    /* group by interface */
+    foreach (config_read_array('virtualip', 'vip', false) as $vipent) {
+        if ($vipent['mode'] === 'proxyarp') {
+            if (empty($interface) || $interface == $vipent['interface']) {
+                if (empty($paa[$vipent['interface']])) {
+                    $paa[$vipent['interface']] = [];
                 }
+                $paa[$vipent['interface']][] = $vipent;
             }
         }
     }
@@ -1478,17 +1475,11 @@ function interface_proxyarp_configure($interface = '')
 
 function interfaces_vips_configure($interface, $family = null)
 {
-    global $config;
-
-    if (!isset($config['virtualip']['vip'])) {
-        return;
-    }
-
     $proxyarp = false;
     $pfsync = false;
     $dad = false;
 
-    foreach ($config['virtualip']['vip'] as $vip) {
+    foreach (config_read_array('virtualip', 'vip', false) as $vip) {
         if ($vip['interface'] != $interface) {
             continue;
         }
@@ -2609,7 +2600,7 @@ function interface_track6_configure($interface, $lancfg, $reload = false)
         case 'dhcp6':
             if ($reload || !isset($lancfg['enable'])) {
                 interface_dhcpv6_prepare($lancfg['track6-interface'], $trackcfg);
-                killbypid('/var/run/dhcp6c.pid', 'HUP');
+                killbypid("/var/run/dhcp6c.{$trackcfg['if']}.pid", 'HUP');
             }
             break;
     }
@@ -2893,15 +2884,16 @@ function interface_dhcpv6_configure($interface, $wancfg)
     }
 
     /* always kill rtsold in case of reconfigure */
-    killbypid('/var/run/rtsold.pid');
+    killbypid("/var/run/rtsold.{$wancfg['if']}.pid");
     @unlink("/tmp/rtsold.{$wancfg['if']}.done");
 
-    $rtsold_frmt = ['/usr/sbin/rtsold -%s -aiu -p %s -A %s -R %s'];
+    $rtsold_frmt = ['/usr/sbin/rtsold -%s -iu -p %s -A %s -R %s %s'];
     $rtsold_args = [
         $settings->dhcp6_debug->isEmpty() ? 'd' : 'D',
-        '/var/run/rtsold.pid',
+        "/var/run/rtsold.{$wancfg['if']}.pid",
         '/usr/local/opnsense/scripts/interfaces/rtsold_script.sh',
         '/usr/local/opnsense/scripts/interfaces/rtsold_resolvconf.sh',
+        $wancfg['if'],
     ];
 
     /* fire up rtsold for IPv6 RAs first */
@@ -2917,28 +2909,6 @@ function interface_dhcpv6_configure($interface, $wancfg)
     }
 }
 
-function interface_dhcpv6_id($interface)
-{
-    global $config;
-
-    /* configuration default */
-    $id = 0;
-
-    if (empty($config['interfaces'])) {
-        return $id;
-    }
-
-    /* detect unique index */
-    foreach (array_keys($config['interfaces']) as $key) {
-        if ($key == $interface) {
-            break;
-        }
-        $id += 1;
-    }
-
-    return $id;
-}
-
 function interface_dhcpv6_prepare($interface, $wancfg, $cleanup = false)
 {
     if (!is_array($wancfg)) {
@@ -2946,7 +2916,6 @@ function interface_dhcpv6_prepare($interface, $wancfg, $cleanup = false)
     }
 
     $settings = new OPNsense\Interfaces\Settings();
-    $id = interface_dhcpv6_id($interface);
     $device = $wancfg['if'];
 
     $dhcp6cconf = "# generated for {$interface} in {$wancfg['ipaddrv6']} mode\n";
@@ -2968,9 +2937,9 @@ function interface_dhcpv6_prepare($interface, $wancfg, $cleanup = false)
             log_msg("DHCP6 config file override does not exist: '{$dhcp6cfile}'", LOG_ERR);
         }
     } elseif (!empty($wancfg['adv_dhcp6_config_advanced'])) {
-        $dhcp6cconf .= DHCP6_Config_File_Advanced($interface, $wancfg, $device, $id);
+        $dhcp6cconf .= DHCP6_Config_File_Advanced($interface, $wancfg, $device);
     } else {
-        $dhcp6cconf .= DHCP6_Config_File_Basic($interface, $wancfg, $device, $id);
+        $dhcp6cconf .= DHCP6_Config_File_Basic($interface, $wancfg, $device);
     }
 
     if (!$cleanup) {
@@ -2978,24 +2947,9 @@ function interface_dhcpv6_prepare($interface, $wancfg, $cleanup = false)
     } else {
         @unlink("/var/etc/dhcp6c.{$device}.conf");
     }
-
-    $dhcp6cconf = '';
-
-    /* merge configs and prepare single instance of dhcp6c for startup */
-    foreach (legacy_config_get_interfaces(['enable' => true, 'virtual' => false]) as $_interface => $_wancfg) {
-        if (empty($_wancfg['ipaddrv6']) || ($_wancfg['ipaddrv6'] != 'dhcp6' && $_wancfg['ipaddrv6'] != 'slaac')) {
-            continue;
-        }
-
-        if (file_exists("/var/etc/dhcp6c.{$_wancfg['if']}.conf")) {
-            $dhcp6cconf .= file_get_contents("/var/etc/dhcp6c.{$_wancfg['if']}.conf");
-        }
-    }
-
-    @file_put_contents('/var/etc/dhcp6c.conf', $dhcp6cconf);
 }
 
-function DHCP6_Config_File_Basic($interface, $wancfg, $wanif, $id = 0)
+function DHCP6_Config_File_Basic($interface, $wancfg, $wanif)
 {
     $dhcp6cconf = '';
 
@@ -3020,7 +2974,7 @@ function DHCP6_Config_File_Basic($interface, $wancfg, $wanif, $id = 0)
                 }
                 $pd_conf .= "  };\n";
 
-                /* XXX $id from dhcp6_assoc_pd */
+                $id = strlen($wancfg['dhcp6_assoc_pd'] ?? '') ? $wancfg['dhcp6_assoc_pd'] : '0';
                 $assoc_pd[$id] = ($assoc_pd[$id] ?? '') . $pd_conf;
             }
 
@@ -3035,25 +2989,26 @@ function DHCP6_Config_File_Basic($interface, $wancfg, $wanif, $id = 0)
                     }
                     $pd_conf .= "  };\n";
 
-                    /* XXX $id from track6_assoc_pd */
+                    $id = strlen($lancfg['track6_assoc_pd'] ?? '') ? $lancfg['track6_assoc_pd'] : '0';
                     $assoc_pd[$id] = ($assoc_pd[$id] ?? '') . $pd_conf;
                 }
+            }
+
+            if (!count($assoc_pd)) {
+                /* for backwards compatibility always emit a default PD request */
+                $assoc_pd[0] = '';
             }
         }
 
         ksort($assoc_pd, SORT_NUMERIC);
 
-        /* for backwards compatibility always emit this PD request */
-        if (!isset($assoc_pd[$id])) {
-            $assoc_pd[$id] = '';
-        }
-
         $dhcp6cconf .= "interface {$wanif} {\n";
 
         if (!isset($wancfg['dhcp6prefixonly'])) {
             /* request non-temporary address */
-            $dhcp6cconf .= "  send ia-na {$id};\n";
+            $dhcp6cconf .= "  send ia-na 0;\n";
         }
+
         if (is_numeric($wancfg['dhcp6-ia-pd-len'])) {
             /* request prefix delegation */
             foreach (array_keys($assoc_pd) as $id) {
@@ -3074,7 +3029,7 @@ function DHCP6_Config_File_Basic($interface, $wancfg, $wanif, $id = 0)
         $dhcp6cconf .= "};\n";
 
         if (!isset($wancfg['dhcp6prefixonly'])) {
-            $dhcp6cconf .= "id-assoc na {$id} { };\n";
+            $dhcp6cconf .= "id-assoc na 0 { };\n";
         }
 
         foreach ($assoc_pd as $i => $pd_conf) {
@@ -3091,7 +3046,7 @@ function DHCP6_Config_File_Basic($interface, $wancfg, $wanif, $id = 0)
     return $dhcp6cconf;
 }
 
-function DHCP6_Config_File_Advanced($interface, $wancfg, $wanif, $id = 0)
+function DHCP6_Config_File_Advanced($interface, $wancfg, $wanif)
 {
     $send_options = "";
 
@@ -3133,7 +3088,7 @@ function DHCP6_Config_File_Advanced($interface, $wancfg, $wanif, $id = 0)
         if (is_numeric($wancfg['adv_dhcp6_id_assoc_statement_address_id'])) {
             $id_assoc_statement_address .= "{$wancfg['adv_dhcp6_id_assoc_statement_address_id']}";
         } else {
-            $id_assoc_statement_address .= $id;
+            $id_assoc_statement_address .= 0; /* only as a fallback */
         }
         $id_assoc_statement_address .= " {\n";
 
@@ -3163,7 +3118,7 @@ function DHCP6_Config_File_Advanced($interface, $wancfg, $wanif, $id = 0)
         if (is_numeric($wancfg['adv_dhcp6_id_assoc_statement_prefix_id'])) {
             $id_assoc_statement_prefix .= "{$wancfg['adv_dhcp6_id_assoc_statement_prefix_id']}";
         } else {
-            $id_assoc_statement_prefix .= $id;
+            $id_assoc_statement_prefix .= 0; /* only as a fallback */
         }
         $id_assoc_statement_prefix .= " {\n";
 
@@ -3546,12 +3501,10 @@ function convert_friendly_interface_to_friendly_descr($interface)
                 return !empty($config['interfaces'][$interface]['descr']) ?
                     $config['interfaces'][$interface]['descr'] : strtoupper($interface);
             } elseif (strstr($interface, '_vip')) {
-                if (isset($config['virtualip']['vip'])) {
-                    foreach ($config['virtualip']['vip'] as $counter => $vip) {
-                        if ($vip['mode'] == 'carp') {
-                            if ($interface == "{$vip['interface']}_vip{$vip['vhid']}") {
-                                return "{$vip['descr']} ({$vip['subnet']})";
-                            }
+                foreach (config_read_array('virtualip', 'vip', false) as $vip) {
+                    if ($vip['mode'] == 'carp') {
+                        if ($interface == "{$vip['interface']}_vip{$vip['vhid']}") {
+                            return "{$vip['descr']} ({$vip['subnet']})";
                         }
                     }
                 }
@@ -3732,7 +3685,7 @@ function link_interface_to_gre($interface, $update = false, $family = null)
     foreach (config_read_array('gres', 'gre') as $gre) {
         $parent = explode('_vip', $gre['if'])[0];
         if (is_ipaddr($parent)) {
-            foreach (config_read_array('virtualip', 'vip') as $vip) {
+            foreach (config_read_array('virtualip', 'vip', false) as $vip) {
                 if ($vip['mode'] == 'ipalias' && $vip['subnet'] == $parent) {
                     $parent = $vip['interface'];
                     break;
@@ -3785,32 +3738,6 @@ function link_interface_to_gif($interface, $update = false, $family = null)
     return $result;
 }
 
-function ip_in_interface_alias_subnet($interface, $ipalias)
-{
-    global $config;
-
-    if (empty($interface) || !is_ipaddr($ipalias)) {
-        return false;
-    }
-    if (isset($config['virtualip']['vip'])) {
-        foreach ($config['virtualip']['vip'] as $vip) {
-            switch ($vip['mode']) {
-                case "ipalias":
-                    if ($vip['interface'] != $interface) {
-                        break;
-                    }
-                    $subnet = is_ipaddrv6($ipalias) ? gen_subnetv6($vip['subnet'], $vip['subnet_bits']) : gen_subnet($vip['subnet'], $vip['subnet_bits']);
-                    if (ip_in_subnet($ipalias, $subnet . "/" . $vip['subnet_bits'])) {
-                        return true;
-                    }
-                    break;
-            }
-        }
-    }
-
-    return false;
-}
-
 function get_interface_ip($interface, $ifconfig_details = null)
 {
     if (is_ipaddrv4($interface)) {
@@ -3818,7 +3745,7 @@ function get_interface_ip($interface, $ifconfig_details = null)
     }
 
     if (strstr($interface, '_vip')) {
-        foreach (config_read_array('virtualip', 'vip') as $vip) {
+        foreach (config_read_array('virtualip', 'vip', false) as $vip) {
             if ($vip['mode'] == 'carp') {
                 if ($interface == "{$vip['interface']}_vip{$vip['vhid']}" && is_ipaddrv4($vip['subnet'])) {
                     return $vip['subnet'];
@@ -3839,7 +3766,7 @@ function get_interface_ipv6($interface, $ifconfig_details = null, $mode = 'prima
     }
 
     if (strstr($interface, '_vip')) {
-        foreach (config_read_array('virtualip', 'vip') as $vip) {
+        foreach (config_read_array('virtualip', 'vip', false) as $vip) {
             if ($vip['mode'] == 'carp') {
                 if ($interface == "{$vip['interface']}_vip{$vip['vhid']}" && is_ipaddrv6($vip['subnet'])) {
                     return $vip['subnet'];
@@ -4051,7 +3978,7 @@ function interfaces_addresses($interfaces, $as_subnet = false, $ifconfig_details
     }
 
     foreach ($result as &$info) {
-        foreach (config_read_array('virtualip', 'vip') as $vip) {
+        foreach (config_read_array('virtualip', 'vip', false) as $vip) {
             if (empty($info['interface']) || $info['interface'] != $vip['interface']) {
                 continue;
             }

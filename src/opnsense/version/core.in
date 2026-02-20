@@ -19,7 +19,6 @@
     "product_display_nickname": "%%CORE_DISPLAY_NICKNAME%%",
     "CORE_PRODUCT": "%%CORE_PRODUCT%%",
     "CORE_PYTHON_DOT": "%%CORE_PYTHON_DOT%%",
-    "CORE_REPOSITORY": "%%CORE_REPOSITORY%%",
     "CORE_SERIES_FW": "%%CORE_SERIES_FW%%",
     "CORE_SERIES": "%%CORE_SERIES%%",
     "CORE_SYSLOGNG": "%%CORE_SYSLOGNG%%",

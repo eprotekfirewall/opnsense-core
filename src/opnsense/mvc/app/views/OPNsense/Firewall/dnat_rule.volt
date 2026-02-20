@@ -139,10 +139,10 @@
 
                         if (!rowId.includes('-')) {
                             return `
-                                <a href="/system_advanced_firewall.php"
+                                <a href="/system_advanced_firewall.php" target="_blank" rel="noopener noreferrer"
                                 class="btn btn-xs btn-default bootgrid-tooltip"
-                                title="{{ lang._('Lookup Rule') }}">
-                                    <span class="fa fa-fw fa-search"></span>
+                                title="{{ lang._('Lookup rule reference') }}">
+                                    <span class="fa fa-fw fa-link"></span>
                                 </a>
                             `;
                         }
@@ -186,7 +186,7 @@
                         if (row.isGroup || !rowId.includes('-')) {
                             return '';
                         }
-                        const isEnabled = row[column.id] === "0";
+                        const isEnabled = row[column.id] === "0"; /* flag is inverted in model */
                         return `
                             <span class="fa fa-fw ${isEnabled ? 'fa-check-square-o' : 'fa-square-o text-muted'} bootgrid-tooltip command-toggle"
                                 style="cursor: pointer;"

@@ -1,8 +1,7 @@
-#!/usr/local/bin/php
 <?php
 
 /*
- * Copyright (C) 2021 Deciso B.V.
+ * Copyright (C) 2026 Deciso B.V.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,37 +26,33 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-require_once("config.inc");
-require_once("interfaces.inc");
-require_once("util.inc");
+namespace OPNsense\Core;
 
-$subsystem = !empty($argv[1]) ? $argv[1] : '';
-$type = !empty($argv[2]) ? $argv[2] : '';
-
-$a_hasync = config_read_array('hasync', false);
-if (!empty($a_hasync['disconnectppps'])) {
-    if ($type != 'MASTER' && $type != 'BACKUP' && $type != 'INIT') {
-       log_msg("Carp '$type' event unknown from source '{$subsystem}'");
-       exit(1);
-    } elseif (!strstr($subsystem, '@')) {
-       log_msg("Carp '$type' event triggered from wrong source '{$subsystem}'");
-       exit(1);
+class Type
+{
+    /**
+     * check if a UUID is valid
+     */
+    public static function isUUID(?string $uuid): bool
+    {
+        if (
+            preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $uuid ?? '') !== 1
+        ) {
+            return false;
+        }
+        return true;
     }
 
-    list ($vhid, $iface) = explode('@', $subsystem);
-
-    foreach (config_read_array('ppps', 'ppp', false) as $ppp) {
-        if ($ppp['ports'] == $iface) {
-            foreach (config_read_array('interfaces', false) as $ifkey => $interface) {
-                if ($ppp['if'] == $interface['if']) {
-                    log_msg("{$iface} is connected to ppp interface {$ifkey} set new status {$type}");
-                    if ($type == 'BACKUP' || $type == 'INIT') {
-                        interface_suspend($ifkey);
-                    } else {
-                        interface_ppps_configure($ifkey);
-                    }
-                }
+    /**
+     * check if an array contains a valid UUID
+     */
+    public static function containsUUID(array $tokens): bool
+    {
+        foreach ($tokens as $token) {
+            if (self::isUUID($token)) {
+                return true;
             }
         }
+        return false;
     }
 }

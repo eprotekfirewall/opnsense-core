@@ -150,7 +150,6 @@
 /usr/local/etc/rc.syshook.d/stop/99-config
 /usr/local/etc/rc.syshook.d/update/10-refresh.sh
 /usr/local/etc/rc.syshook.d/upgrade/10-sanity.sh
-/usr/local/etc/rc.syshook.d/upgrade/90-cleanup.sh
 /usr/local/etc/ssh/sshd_config.d/README
 /usr/local/etc/ssl/ext_sources/README
 /usr/local/etc/ssl/opnsense.cnf
@@ -541,6 +540,7 @@
 /usr/local/opnsense/mvc/app/library/OPNsense/Core/Shell.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Core/Singleton.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Core/Syslog.php
+/usr/local/opnsense/mvc/app/library/OPNsense/Core/Type.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Firewall/DNatRule.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Firewall/FilterRule.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Firewall/ForwardRule.php
@@ -2553,4 +2553,5 @@
 @sample /usr/local/etc/bogonsv6.sample
 @sample /usr/local/etc/config.xml.sample
 @shadow /usr/local/etc/pkg/repos/FreeBSD.conf.sample
+@shadow /usr/local/etc/pkg/repos/OPNsense-aux.conf.sample
 @shadow /usr/local/etc/pkg/repos/OPNsense.conf.sample

@@ -251,18 +251,29 @@ function validate_track6_idassoc6(&$pconfig, $if)
             if ($track6_prefix_id < 0 || $track6_prefix_id >= $ipv6_num_prefix_ids) {
                 $input_errors[] = gettext("You specified an IPv6 prefix ID that is out of range.");
             }
+            $assoc_pd_ref = '0';
+            if (!empty($pconfig["{$pconfig['type6']}_assoc_pd"]) && ctype_digit($pconfig["{$pconfig['type6']}_assoc_pd"])) {
+                $assoc_pd_ref = $pconfig["{$pconfig['type6']}_assoc_pd"];
+            }
             foreach (link_interface_to_track6($pconfig["{$pconfig['type6']}-interface"]) as $trackif => $trackcfg) {
-                if ($trackif != $if && $trackcfg['track6-prefix-id'] == $track6_prefix_id) {
+                $assoc_pd_link = !empty($trackcfg['track6_assoc_pd']) ? $trackcfg['track6_assoc_pd'] : '0';
+                if ($trackif != $if && $assoc_pd_ref == $assoc_pd_ref && $trackcfg['track6-prefix-id'] == $track6_prefix_id) {
                     $input_errors[] = gettext('You specified an IPv6 prefix ID that is already in use.');
                     break;
                 }
             }
             if (isset($config['interfaces'][$pconfig["{$pconfig['type6']}-interface"]]['dhcp6-prefix-id'])) {
-                if ($config['interfaces'][$pconfig["{$pconfig['type6']}-interface"]]['dhcp6-prefix-id'] == $track6_prefix_id) {
+                $assoc_pd_parent = !empty($config['interfaces'][$pconfig["{$pconfig['type6']}-interface"]]['dhcp6_assoc_pd']) ?
+                    $config['interfaces'][$pconfig["{$pconfig['type6']}-interface"]]['dhcp6_assoc_pd'] : '0';
+                if ($assoc_pd_ref == $assoc_pd_parent && $config['interfaces'][$pconfig["{$pconfig['type6']}-interface"]]['dhcp6-prefix-id'] == $track6_prefix_id) {
                     $input_errors[] = gettext('You specified an IPv6 prefix ID that is already in use.');
                 }
             }
         }
+    }
+
+    if (!empty($pconfig["{$pconfig['type6']}_assoc_pd"]) && !ctype_digit($pconfig["{$pconfig['type6']}_assoc_pd"])) {
+        $input_errors[] = gettext('You must enter a valid number for the IPv6 prefix association identity.');
     }
 
     if (isset($pconfig["{$pconfig['type6']}_ifid--hex"]) && $pconfig["{$pconfig['type6']}_ifid--hex"] != '') {
@@ -297,6 +308,9 @@ function store_track6_idassoc6(&$new_config, &$pconfig)
     }
     if (isset($pconfig["{$pconfig['type6']}_ifid--hex"]) && ctype_xdigit($pconfig["{$pconfig['type6']}_ifid--hex"])) {
         $new_config['track6_ifid'] = intval($pconfig["{$pconfig['type6']}_ifid--hex"], 16);
+    }
+    if (!empty($pconfig["{$pconfig['type6']}_assoc_pd"])) {
+        $new_config['track6_assoc_pd'] = $pconfig["{$pconfig['type6']}_assoc_pd"];
     }
     if ($pconfig['type6'] == 'track6') {
         /* this is not needed in the new world */
@@ -392,9 +406,6 @@ $hwifs = array_keys(get_interface_list());
 $a_interfaces = &config_read_array('interfaces');
 $a_ppps = &config_read_array('ppps', 'ppp');
 
-$a_cert = isset($config['cert']) ? $config['cert'] : array();
-$a_ca = isset($config['ca']) ? $config['ca'] : array();
-
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     if (!empty($_GET['if']) && !empty($a_interfaces[$_GET['if']])) {
         $if = $_GET['if'];
@@ -464,6 +475,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         'dhcp6_ifid',
         'dhcp6_norequest_dns',
         'dhcp6_rapid_commit',
+        'dhcp6_assoc_pd',
         'dhcp6vlanprio',
         'dhcphostname',
         'dhcprejectfrom',
@@ -491,6 +503,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         'subnetv6',
         'track6-interface',
         'track6-prefix-id',
+        'track6_assoc_pd',
         'track6_ifid',
     ];
     foreach ($std_copy_fieldnames as $fieldname) {
@@ -512,7 +525,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $pconfig['dhcpd6track6allowoverride'] = isset($a_interfaces[$if]['dhcpd6track6allowoverride']);
     $pconfig['dhcp6_request_dns'] = empty($pconfig['dhcp6_norequest_dns']);
 
-    foreach(['-interface', '-prefix-id', '-prefix-id--hex', '_ifid', '_ifid--hex'] as $fieldname) {
+    foreach(['-interface', '-prefix-id', '-prefix-id--hex', '_assoc_pd', '_ifid', '_ifid--hex'] as $fieldname) {
         /* only for form consistency */
         $pconfig["idassoc6{$fieldname}"] = $pconfig["track6{$fieldname}"];
     }
@@ -750,13 +763,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                                 $input_errors[] = gettext("You specified an IPv6 prefix ID that is out of range.");
                             }
                         }
+                        $assoc_pd_ref = '0';
+                        if (!empty($pconfig['dhcp6_assoc_pd']) && ctype_digit($pconfig['dhcp6_assoc_pd'])) {
+                            $assoc_pd_ref = $pconfig['dhcp6_assoc_pd'];
+                        }
                         foreach (link_interface_to_track6($pconfig['track6-interface']) as $trackif => $trackcfg) {
-                            if ($trackcfg['track6-prefix-id'] == $dhcp6_prefix_id) {
+                            $assoc_pd_link = !empty($trackcfg['track6_assoc_pd']) ? $trackcfg['track6_assoc_pd'] : '0';
+                            if ($assoc_pd_ref == $assoc_pd_link && $trackcfg['track6-prefix-id'] == $dhcp6_prefix_id) {
                                 $input_errors[] = gettext('You specified an IPv6 prefix ID that is already in use.');
                                 break;
                             }
                         }
                     }
+                }
+                if (!empty($pconfig['dhcp6_assoc_pd']) && !ctype_digit($pconfig['dhcp6_assoc_pd'])) {
+                    $input_errors[] = gettext('You must enter a valid number for the IPv6 prefix association identity.');
                 }
                 if (isset($pconfig['dhcp6_ifid--hex']) && $pconfig['dhcp6_ifid--hex'] != '') {
                     if (!ctype_xdigit($pconfig['dhcp6_ifid--hex'])) {
@@ -904,7 +925,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                     $input_errors[] = gettext("MTU of a VLAN should not be bigger than parent interface.");
                 }
             } else {
-                foreach ($config['interfaces'] as $idx => $ifdata) {
+                foreach (config_read_array('interfaces', false) as $idx => $ifdata) {
                     if ($idx == $if || !strstr($ifdata['if'], 'vlan') || !strstr($ifdata['if'], 'qinq')) {
                         continue;
                     }
@@ -943,11 +964,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             if ($a_interfaces[$if]['wireless']['mode'] != $pconfig['mode']) {
                 $wlanbaseif = interface_get_wireless_base($a_interfaces[$if]['if']);
                 $clone_count = does_interface_exist("{$wlanbaseif}_wlan0") ? 1 : 0;
-                if (!empty($config['wireless']['clone'])) {
-                    foreach ($config['wireless']['clone'] as $clone) {
-                        if ($clone['if'] == $wlanbaseif) {
-                            $clone_count++;
-                        }
+                foreach (config_read_array('wireless', 'clone', false) as $clone) {
+                    if ($clone['if'] == $wlanbaseif) {
+                        $clone_count++;
                     }
                 }
                 if ($clone_count > 1) {
@@ -1124,6 +1143,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                     }
                     if (!empty($pconfig['dhcp6_rapid_commit'])) {
                         $new_config['dhcp6_rapid_commit'] = true;
+                    }
+                    if (!empty($pconfig['dhcp6_assoc_pd'])) {
+                        $new_config['dhcp6_assoc_pd'] = $pconfig['dhcp6_assoc_pd'];
                     }
                     $new_config['adv_dhcp6_interface_statement_send_options'] = $pconfig['adv_dhcp6_interface_statement_send_options'];
                     $new_config['adv_dhcp6_interface_statement_request_options'] = $pconfig['adv_dhcp6_interface_statement_request_options'];
@@ -2392,6 +2414,15 @@ include("head.inc");
                             </div>
                           </td>
                         </tr>
+                        <tr class="dhcpv6_basic">
+                          <td><a id="help_for_dhcp6_assoc_pd" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?= gettext('Optional IA-PD ID') ?></td>
+                          <td>
+                            <input name="dhcp6_assoc_pd" type="text" id="dhcp6_assoc_pd" value="<?= html_safe($pconfig['dhcp6_assoc_pd']) ?>" />
+                            <div class="hidden" data-for="help_for_dhcp6_assoc_pd">
+                              <?= gettext('The ID to use for prefix request identity association if required to be non-zero.') ?>
+                            </div>
+                          </td>
+                        </tr>
                         <tr class="dhcpv6_advanced">
                           <td><a id="help_for_dhcp6_intf_stmt" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Interface Statement");?></td>
                           <td>
@@ -2621,6 +2652,15 @@ include("head.inc");
                             </div>
                           </td>
                         </tr>
+                        <tr>
+                          <td><a id="help_for_idassoc6_assoc_pd" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?= gettext('Optional IA-PD ID') ?></td>
+                          <td>
+                            <input name="idassoc6_assoc_pd" type="text" id="idassoc6_assoc_pd" value="<?= html_safe($pconfig['idassoc6_assoc_pd']) ?>" />
+                            <div class="hidden" data-for="help_for_idassoc6_assoc_pd">
+                              <?= gettext('The ID to use for prefix request identity association if required to be non-zero.') ?>
+                            </div>
+                          </td>
+                        </tr>
                       </tbody>
                     </table>
                   </div>
@@ -2674,6 +2714,15 @@ include("head.inc");
                             </div>
                             <div class="hidden" data-for="help_for_track6_ifid">
                               <?= gettext('The value in this field is the numeric IPv6 interface ID used to construct the lower part of the resulting IPv6 prefix address. Setting a hex value will use that fixed value in its lower address part. Please note the maximum usable value is 0x7fffffffffffffff due to a PHP integer restriction.') ?>
+                            </div>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td><a id="help_for_track6_assoc_pd" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?= gettext('Optional IA-PD ID') ?></td>
+                          <td>
+                            <input name="track6_assoc_pd" type="text" id="track6_assoc_pd" value="<?= html_safe($pconfig['track6_assoc_pd']) ?>" />
+                            <div class="hidden" data-for="help_for_track6_assoc_pd">
+                              <?= gettext('The ID to use for prefix request identity association if required to be non-zero.') ?>
                             </div>
                           </td>
                         </tr>
@@ -3111,11 +3160,11 @@ include("head.inc");
                           <td>
                             <select name="wpa_eap_cacertref" class="selectpicker" data-style="btn-default">
                               <option value="" <?=empty($pconfig['wpa_eap_cacertref']) ? "selected=\"selected\"" : "";?>><?=gettext("Do not verify server"); ?></option>
-          <?php foreach ($a_ca as $ca): ?>
+<?php foreach (config_read_array('ca', false) as $ca): ?>
                               <option value="<?=$ca['refid'];?>" <?=$pconfig['wpa_eap_cacertref'] == $ca['refid'] ? "selected=\"selected\"" : "";?>>
                                 <?=$ca['descr'];?>
                               </option>
-          <?php endforeach ?>
+<?php endforeach ?>
                             </select>
                             <div class='hidden' data-for="help_for_cacertref">
                               <?=gettext('Certificate authority used to verify the access point\'s TLS certificate. Only relevant for infrastructure mode (BSS) if Extensible Authentication Protocol (EAP) is used for key management.');?><br />
@@ -3132,13 +3181,13 @@ include("head.inc");
                           <td>
                             <select name="wpa_eap_cltcertref" class="selectpicker" data-style="btn-default">
                               <option value="" <?=empty($pconfig['wpa_eap_cltcertref']) ? "selected=\"selected\"" : "";?>><?=gettext("none"); ?></option>
-          <?php foreach ($a_cert as $cert): ?>
-          <?php if (isset($cert['prv'])): ?>
+<?php foreach (config_read_array('cert', false) as $cert): ?>
+<?php if (isset($cert['prv'])): ?>
                               <option value="<?=$cert['refid'];?>" <?=$pconfig['wpa_eap_cltcertref'] == $cert['refid'] ? "selected=\"selected\"" : "";?>>
                                 <?=$cert['descr'];?>
                               </option>
-          <?php endif ?>
-          <?php endforeach ?>
+<?php endif ?>
+<?php endforeach ?>
                             </select>
                             <div class='hidden' data-for="help_for_clientcertref">
                               <?=gettext('Certificate used for authentication towards the access point. Only relevant for infrastructure mode (BSS) if EAP with TLS is used for key management.');?><br />
